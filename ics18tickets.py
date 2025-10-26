@@ -95,25 +95,30 @@ def generate_ics(output_path: str = "ics18tickets.ics") -> bool:
     cal = get_existing_calendar(output_path)
     existing_events = {event.uid: event for event in cal.events}
 
-    # Read URL from config.yml (fetch_films_json will raise if config is missing/invalid)
     json_data = fetch_films_json()
 
-    # Read the configured address (optional) to use as event location
-    # Load configured address if present; if not present leave it as None so we
-    # do not set a location on the ICS event.
     cfg = None
+
     try:
         cfg = _load_config(require_site=True)
     except RuntimeError:
-        # _load_config already raises if config missing/invalid; if it does,
-        # we continue with configured_address = None so caller can handle it.
         cfg = None
+
     configured_address = None if cfg is None else cfg.get('address')
+    filters = cfg.get('filter', []) if cfg else []
 
     calendar_was_modified = False
 
     for film in json_data.get('films', []):
         title = film.get('title')
+
+        if filters:
+            title_lower = title.casefold()
+            
+            if not any(f.casefold() in title_lower for f in filters):
+                print(f"  Skipping film due to filters: {title}")
+                continue
+
         plot = film.get('plot')
         duration = film.get('length', 0)
         film_url = film.get('film_url')
@@ -135,8 +140,6 @@ def generate_ics(output_path: str = "ics18tickets.ics") -> bool:
                     start_time=start,
                     duration=duration,
                     description=f"{theater_name}\n\n{plot}\n\nMore info: {film_url}",
-                    # If `address` is configured, use it; otherwise leave `location` None
-                    # (the create_ics_event will accept Optional[str]).
                     location=(configured_address if configured_address else None)
                 )
                 cal.events.add(event)
@@ -154,5 +157,4 @@ def generate_ics(output_path: str = "ics18tickets.ics") -> bool:
 
 
 if __name__ == '__main__':
-    # keep the previous behavior when running the script directly
     generate_ics()
