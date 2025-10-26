@@ -39,6 +39,7 @@ scheme: https
 api_path: /api/v2/films
 address: "123 Example Street, Exampleville, EX 00000"  # use "" to omit event location
 filter: ['']                      # e.g., ['v.o.s.'] to include only matching titles
+port: 8091                        # optional: change the server listen port (default 8091)
 ```
 
 Notes:
