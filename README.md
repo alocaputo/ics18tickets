@@ -154,6 +154,4 @@ From any machine:
 # expect HTTP 200 and Content-Type: text/calendar
 ```
 
-If helpful, I can add a systemd unit for `server.py` or a small Docker Compose example to run the static file server with NPM.
-
 Last updated: 2025-10-26
