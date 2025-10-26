@@ -3,8 +3,8 @@
 # You may specify either a hostname (example: example.18tickets.it)
 # or a full URL (example: https://example.18tickets.it).
 
-site: example.18tickets.it
+site: example.18tickets.it        # replace with the correct host or full URL
 scheme: https
 api_path: /api/v2/films
-address: "123 Example Street, Exampleville, EX 00000"
-filter: [''] # e.g., ['v.o.s.'] to include only titles containing
+address: "123 Example Street, Exampleville, EX 00000"  # use "" to omit event location
+filter: ['']                      # e.g., ['v.o.s.'] to include only matching titles
