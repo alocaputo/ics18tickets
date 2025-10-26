@@ -7,3 +7,4 @@ site: example.18tickets.it
 scheme: https
 api_path: /api/v2/films
 address: "123 Example Street, Exampleville, EX 00000"
+filter: [''] # e.g., ['v.o.s.'] to include only titles containing
