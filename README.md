@@ -51,33 +51,23 @@ Run once to create the .ics file:
 /opt/ics18tickets/venv/bin/python ics18tickets.py
 ```
 
-Serve the directory from the host (optional)
--------------------------------------------
-
-Run a tiny HTTP server that serves `/opt/ics18tickets` on port 8085. For quick testing:
-
-```bash
-cd /opt/ics18tickets
-python3 -m http.server 8085 --directory . &
-# verify
-curl -I http://127.0.0.1:8085/ics18tickets.ics
-```
-
 Systemd unit (recommended)
 --------------------------
 
-Create `/etc/systemd/system/ics18tickets-http.service` to serve files (default port 8091):
+Create a systemd unit file named `ics18tickets-http.service` that runs a small server script (recommended path: `/opt/ics18tickets/server.py`) which serves only the calendar file. This avoids exposing the directory listing.
+
+Example unit file:
 
 ```
 [Unit]
-Description=Serve ics18tickets static files
+Description=Serve ics18tickets static files (serve only the .ics file)
 After=network.target
 
 [Service]
 Type=simple
 User=www-data
 WorkingDirectory=/opt/ics18tickets
-ExecStart=/usr/bin/python3 -m http.server 8091 --directory /opt/ics18tickets
+ExecStart=/usr/bin/python3 /opt/ics18tickets/server.py
 Restart=on-failure
 
 [Install]
@@ -119,29 +109,6 @@ Create `/etc/cron.d/ics18tickets`:
 
 This ensures the host cron updates the file and the host HTTP server serves the latest copy immediately.
 
-Alternative (untested): host service (Flask) proxied by NPM
-----------------------------------------------------------
-
-Run `server.py` (Flask) or a host `python -m http.server` and proxy via NPM.
-
-1. Create venv & install deps as above.
-2. Run the service:
-
-```bash
-/opt/ics18tickets/venv/bin/python /opt/ics18tickets/server.py &
-```
-
-3. In NPM create a Proxy Host:
-
-- Domain Names: `ics.example.com`
-- Scheme: `http`
-- Forward Hostname / IP: the host IP (not 127.0.0.1) — use the VPS local network IP or public IP reachable by Docker containers
-- Forward Port: `8000` (or whatever port the Flask app listens on)
-- Enable SSL: request Let's Encrypt certificate
-
-Notes & gotchas:
-- Docker containers cannot reach the host's `127.0.0.1`. Use the host IP visible to Docker or run the service inside Docker.
-- Prefer running the Flask app as a systemd service so it restarts on failure.
 
 Cleanup
 -------
@@ -151,9 +118,10 @@ To remove the cron and the optional systemd unit and served files:
 ```bash
 sudo rm -f /etc/cron.d/ics18tickets
 sudo rm -rf /opt/ics18tickets/ics
+# remove the systemd unit file if you created it (adjust path as needed)
+sudo rm -f /etc/systemd/system/ics18tickets-http.service
 sudo systemctl stop ics18tickets-http.service || true
 sudo systemctl disable ics18tickets-http.service || true
-sudo rm -f /etc/systemd/system/ics18tickets-http.service
 sudo systemctl daemon-reload
 ```
 

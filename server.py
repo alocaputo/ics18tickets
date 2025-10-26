@@ -1,69 +1,92 @@
-import os
-import logging
-from flask import Flask, send_file, jsonify
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
+import signal
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+import yaml  # new import
 
-from ics18tickets import generate_ics
+ICS_PATH = Path(__file__).resolve().parent / "ics18tickets.ics"
+HOST = "0.0.0.0"
+DEFAULT_PORT = 8091
 
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ICS_PATH = os.path.join(BASE_DIR, 'ics18tickets.ics')
-
-app = Flask(__name__)
-
-
-def scheduled_update():
+# load port from config.yml if available, otherwise use DEFAULT_PORT
+CONFIG_PATH = Path(__file__).resolve().parent / "config.yml"
+def _load_port(default: int = DEFAULT_PORT) -> int:
     try:
-        logger.info('Running scheduled update...')
-        changed = generate_ics(output_path=ICS_PATH)
-        logger.info('Scheduled update finished. changed=%s', changed)
-    except Exception as e:
-        logger.exception('Scheduled update failed: %s', e)
-
-
-@app.route('/ics18tickets.ics')
-def serve_ics():
-    # Ensure file exists; generate if missing
-    if not os.path.exists(ICS_PATH):
-        logger.info('ICS not found on request, generating now...')
-        try:
-            generate_ics(output_path=ICS_PATH)
-        except Exception:
-            logger.exception('Failed to generate ICS on demand')
-    # Send file as text/calendar so clients can subscribe
-    return send_file(ICS_PATH, mimetype='text/calendar')
-
-
-@app.route('/update', methods=['POST', 'GET'])
-def manual_update():
-    try:
-        changed = generate_ics(output_path=ICS_PATH)
-        return jsonify({'ok': True, 'changed': changed})
-    except Exception as e:
-        logger.exception('Manual update failed')
-        return jsonify({'ok': False, 'error': str(e)}), 500
-
-
-def main():
-    # run once at startup to ensure ICS exists
-    try:
-        generate_ics(output_path=ICS_PATH)
+        if CONFIG_PATH.exists():
+            cfg = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+            port = int(cfg.get("port", default))
+            return port
     except Exception:
-        logger.exception('Initial generation failed')
+        # on any error, fall back to default
+        pass
+    return default
 
-    # Scheduler: every Monday at 23:59 local system time
-    scheduler = BackgroundScheduler()
-    cron = CronTrigger(day_of_week='mon', hour=23, minute=59)
-    scheduler.add_job(scheduled_update, cron, id='weekly_update')
-    scheduler.start()
+PORT = _load_port()
 
-    # run the web server
-    app.run(host='0.0.0.0', port=8067)
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        sys.stdout.write("%s - - [%s] %s\n" %
+                         (self.client_address[0], self.log_date_time_string(), fmt % args))
+        sys.stdout.flush()
 
+    def _respond_ics(self, send_body=True):
+        try:
+            data = ICS_PATH.read_bytes()
+        except Exception:
+            self.send_response(503)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            if send_body:
+                self.wfile.write(b"Service unavailable: calendar file not found\n")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/calendar; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        if send_body:
+            self.wfile.write(data)
 
-if __name__ == '__main__':
-    main()
+    def do_HEAD(self):
+        if self.path in ("/", "/ics18tickets.ics", "/ics/ics18tickets.ics"):
+            self._respond_ics(send_body=False)
+        elif self.path == "/health":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_GET(self):
+        if self.path in ("/", "/ics18tickets.ics", "/ics/ics18tickets.ics"):
+            self._respond_ics(send_body=True)
+        elif self.path == "/health":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"OK")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+def run():
+    httpd = HTTPServer((HOST, PORT), Handler)
+
+    def _shutdown(signum, frame):
+        print(f"Received signal {signum}, shutting down...", file=sys.stderr)
+        httpd.shutdown()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
+    print(f"Serving {ICS_PATH} on {HOST}:{PORT}", file=sys.stderr)
+    try:
+        httpd.serve_forever()
+    finally:
+        httpd.server_close()
+        print("Server stopped", file=sys.stderr)
+
+if __name__ == "__main__":
+    run()
